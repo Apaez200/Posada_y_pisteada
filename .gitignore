@@ -4,3 +4,4 @@ tanda.db-shm
 secret.key
 CREDENCIALES.md
 __pycache__/
+.env

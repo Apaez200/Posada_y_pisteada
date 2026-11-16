@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+.env.example
+*.md
+tanda.db*
+secret.key
+__pycache__/
+*.pyc
+Dockerfile
+docker-compose.yml

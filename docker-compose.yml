@@ -1,0 +1,21 @@
+services:
+  tanda:
+    build: .
+    container_name: tanda
+    restart: unless-stopped
+    ports:
+      - "${TANDA_PORT:-5000}:5000"
+    environment:
+      # Credenciales del único administrador (se leen del archivo .env, que NO se sube a git)
+      TANDA_ADMIN_EMAIL: ${TANDA_ADMIN_EMAIL:?Falta TANDA_ADMIN_EMAIL en el archivo .env}
+      TANDA_ADMIN_PASS: ${TANDA_ADMIN_PASS:?Falta TANDA_ADMIN_PASS en el archivo .env}
+      # 1 cuando el sitio se sirve con HTTPS (cookie de sesión solo por HTTPS)
+      TANDA_PROD: ${TANDA_PROD:-0}
+      # Número de proxies de confianza delante (Nginx, Caddy, Traefik...). 0 si no hay.
+      TANDA_PROXY: ${TANDA_PROXY:-0}
+    volumes:
+      # Volumen con nombre: sobrevive a rebuilds, redeploys y "docker compose down"
+      - tanda_data:/data
+
+volumes:
+  tanda_data:

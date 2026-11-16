@@ -30,8 +30,11 @@ from flask import Flask, abort, jsonify, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE = Path(__file__).resolve().parent
-DB_PATH = Path(os.environ.get("TANDA_DB", BASE / "tanda.db"))
-KEY_PATH = BASE / "secret.key"
+# Carpeta de datos (tanda.db y secret.key). En Docker apunta al volumen: TANDA_DATA=/data
+DATA_DIR = Path(os.environ.get("TANDA_DATA", BASE))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = Path(os.environ.get("TANDA_DB", DATA_DIR / "tanda.db"))
+KEY_PATH = DATA_DIR / "secret.key"
 
 # Debe coincidir con app.js
 INICIO = date(2026, 11, 9)   # lunes 9 de noviembre
@@ -89,6 +92,27 @@ def init_db() -> None:
                 PRIMARY KEY (persona_id, fecha)
             );
             """
+        )
+
+
+def asegurar_admin_desde_entorno() -> None:
+    """Crea/actualiza al administrador si TANDA_ADMIN_EMAIL y TANDA_ADMIN_PASS están definidas.
+    Pensado para Docker, donde no hay terminal para ejecutar crear_admin.py."""
+    email = os.environ.get("TANDA_ADMIN_EMAIL", "").strip().lower()
+    clave = os.environ.get("TANDA_ADMIN_PASS", "")
+    if not email and not clave:
+        return
+    if "@" not in email or not clave:
+        raise SystemExit("TANDA_ADMIN_EMAIL y TANDA_ADMIN_PASS deben definirse juntas (correo válido y contraseña).")
+    with conectar() as con:
+        actual = con.execute("SELECT email, password_hash FROM admin WHERE id = 1").fetchone()
+        # Si no cambió nada no se reescribe (evita rehacer el hash en cada arranque)
+        if actual and actual["email"] == email and check_password_hash(actual["password_hash"], clave):
+            return
+        con.execute(
+            "INSERT INTO admin (id, email, password_hash) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET email = excluded.email, password_hash = excluded.password_hash",
+            (email, generate_password_hash(clave)),
         )
 
 
@@ -182,6 +206,15 @@ app.config.update(
     JSON_AS_ASCII=False,
 )
 init_db()
+asegurar_admin_desde_entorno()
+
+# Detrás de un proxy inverso (Nginx, Caddy, Traefik...) la IP real llega en X-Forwarded-For.
+# TANDA_PROXY=1 indica cuántos proxies de confianza hay delante. Sin esto, el bloqueo por
+# intentos fallidos vería una sola IP para todos.
+_proxies = int(os.environ.get("TANDA_PROXY", "0") or 0)
+if _proxies > 0:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=_proxies, x_proto=_proxies, x_host=_proxies)
 
 
 @app.after_request
